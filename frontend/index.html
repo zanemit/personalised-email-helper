@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Email Assignment Viewer</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: auto;
+      padding-top: 40px;
+    }
+    input, button {
+      padding: 10px;
+      font-size: 1em;
+      margin: 5px;
+    }
+    .recipient {
+      background: #f5f5f5;
+      padding: 10px;
+      margin: 8px 0;
+      border-left: 4px solid #3498db;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Emailing QS contacts</h1>
+  <p>Please enter your @rsu email address</p>
+  <input type="email" id="emailInput" placeholder="Email" />
+  <button onclick="fetchRecipients()">Log in & fetch contacts</button>
+
+  <div id="result"></div>
+
+  <div id="emailPreviewContainer" style="display:none; margin-top: 20px;">
+
+</div>
+
+  <script>
+
+    const emailPreviewDiv = document.getElementById("emailPreviewContainer");
+
+    function renderRecipients(recipients) {
+      const resultDiv = document.getElementById("result");
+      if (!recipients || recipients.length === 0) {
+        resultDiv.innerHTML = "<p>No contacts remaining to email.</p>";
+        document.getElementById("sendButton").style.display = "none"; // hide send button if none left
+        return;
+      }
+
+      resultDiv.innerHTML = "<h2>Fetched contacts:</h2>";
+      recipients.forEach((recipient, index) => {
+        resultDiv.innerHTML += `
+          <div class="recipient">
+            <input type="checkbox" class="recipient-checkbox" id="recipient_${index}" data-email="${recipient.recipient_email}" checked>
+            <label for="recipient_${index}">
+              <strong>${recipient.recipient_fname} ${recipient.recipient_lname}</strong><br/>
+              ${recipient.recipient_email}
+            </label>
+          </div>
+        `;
+      });
+
+      document.getElementById("sendButton").style.display = "block"; // ensure send button visible if contacts exist
+    }
+
+    async function loadEmailTemplate(recipient, senderName) {
+      const response = await fetch("http://127.0.0.1:8000/email-template");
+      const data = await response.json();
+      if (data.error) {
+        return "Failed to load email template.";
+      }
+
+      let template = data.template;
+      template = template
+        .replace("{fname}", recipient.recipient_fname)
+        .replace("{sender_name}", senderName);
+
+      return template;
+    }
+
+    async function fetchRecipients() {
+      const resultDiv = document.getElementById("result");
+      const email = document.getElementById("emailInput").value;
+      resultDiv.innerHTML = "Please wait...";
+
+      try {
+        const response = await fetch(`http://127.0.0.1:8000/recipients?user_email=${encodeURIComponent(email)}`);
+        const data = await response.json();
+
+        if (response.status === 403 && data.error.includes("token")) {
+            alert("You must log in to continue!");
+            window.location.href = `http://127.0.0.1:8000/login?user_email=${encodeURIComponent(email)}`;
+            return;
+          }
+
+
+        if (data.error && data.error.includes("token")) {
+          // Token missing or expired — redirect to login
+          alert("You must log in to continue!");
+          window.location.href = "http://127.0.0.1:8000/login";
+          return;
+        }
+
+        const senderName = data.sender_name || "Your Sender Name Here";
+        
+        // save recipients globally for later use
+        window.fetchedRecipients = data.recipients;
+        renderRecipients(window.fetchedRecipients);
+
+            if (!data.recipients || data.recipients.length === 0) {
+              console.error("No recipients found in response.");
+              document.getElementById("result").innerHTML = "<p>No recipients found.</p>";
+              return;
+            }
+
+            // show previes with sender name dynamically
+            const firstRecipient = data.recipients[0];
+            console.log("First recipient:", firstRecipient);
+            const emailBody = await loadEmailTemplate(firstRecipient, senderName);
+
+            emailPreviewDiv.innerHTML = `
+              <h3>Email preview for ${firstRecipient.recipient_fname} ${firstRecipient.recipient_lname}:</h3>
+              <textarea id="emailBody" rows="15" cols="80" style="width: 100%; font-family: monospace;">
+${emailBody}
+            </textarea>
+          `;
+            emailPreviewDiv.style.display = 'block';
+
+            // show send button now
+            document.getElementById("sendButton").style.display = "block";
+
+      } catch (error) {
+        resultDiv.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      // Get the user_email from URL query params
+      const urlParams = new URLSearchParams(window.location.search);
+      const userEmail = urlParams.get('user_email');
+      
+      if (userEmail) {
+        // Set the email input field automatically
+        const emailInput = document.getElementById('emailInput');
+        emailInput.value = userEmail;
+
+        // Optionally, clear previous results
+        document.getElementById('result').innerHTML = '';
+        document.getElementById('emailPreviewContainer').style.display = 'none';
+        document.getElementById('sendButton').style.display = 'none';
+
+        // Automatically fetch recipients & display email preview
+        fetchRecipients();
+      }
+    });
+
+  </script>
+
+  <!--  button is hidden initially -->
+  <button id="sendButton" onclick="sendEmails()" style="display:none;">Send a personalised email to the selected contacts</button>
+<p id="sendStatus"></p>
+
+<script>
+  async function sendEmails() {
+    console.log("sendEmails() function triggered");
+    const email = document.getElementById("emailInput").value;
+    const editedBody = document.getElementById("emailBody").value;  // get edited email body
+    const status = document.getElementById("sendStatus");
+
+    // collect all checked recipients' emails
+    const checkedBoxes = document.querySelectorAll(('.recipient-checkbox:checked'))
+    if (checkedBoxes.length === 0){
+      status.innerText = "Please select at least one recipient!";
+      return;
+    }
+    const selectedEmails = Array.from(checkedBoxes).map(cb => cb.getAttribute("data-email"));
+
+    status.innerText = "Sending emails...";
+
+  try {
+    const response = await fetch(`http://127.0.0.1:8000/send-emails?user_email=${encodeURIComponent(email)}`, {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_body: editedBody, selected_emails: selectedEmails })
+    });
+
+    const result = await response.json();
+    status.innerText = result.message || result.error || "Something went wrong.";
+
+    // if emails sent successfully, proceed to update UI
+    if (response.ok){
+      // remove emailed recipients from the fetchedRecipients array
+      window.fetchedRecipients = window.fetchedRecipients.filter(recipient =>
+        !selectedEmails.includes(recipient.recipient_email)
+      );
+
+      // rebuild the recipients UI
+      renderRecipients(window.fetchedRecipients)
+    }
+
+  } catch (err) {
+    status.innerText = "Error sending emails: " + err.message;
+  }
+}
+</script>
+
+
+</body>
+</html>

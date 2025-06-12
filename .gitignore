@@ -1,0 +1,21 @@
+# Environment variables
+.env
+
+# Excel, PDF, text files
+files/recipients.xlsx
+files/QS_consent_reference_text_EN.pdf
+files/email_template.txt
+
+# Python cache and environment
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+env/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

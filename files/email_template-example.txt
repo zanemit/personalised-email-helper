@@ -1,0 +1,8 @@
+Dear {fname},
+
+I hope you are keeping well.
+
+This is the email text.
+
+All the best,  
+{sender_name}
